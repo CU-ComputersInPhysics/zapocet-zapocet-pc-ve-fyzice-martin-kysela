@@ -5,6 +5,8 @@ import matplotlib
 
 matplotlib.use('TkAgg')
 
+np.random.seed(20)
+
 # Konstanty
 g = 9.81  # gravitační zrychlení (m/s^2)
 m1 = 1.0  # hmotnost 1. kyvadla (kg)
@@ -14,9 +16,9 @@ L2 = 1.0  # délka 2. kyvadla (m)
 
 # Funkce pro kinetickou energii
 def kinetic_energy(theta1_dot, theta2_dot, delta_theta):
-    T = 0.5 * m1 * (L1**2) * (theta1_dot**2) + \
-        0.5 * m2 * (L1**2 * (theta1_dot**2) + L2**2 * (theta2_dot**2) + \
-        2 * L1 * L2 * theta1_dot * theta2_dot * np.cos(delta_theta))
+    T = 0.5 * (m1 + m2) * (L1**2) * (theta1_dot**2) + \
+        0.5 * m2 * L2**2 * (theta2_dot**2) + \
+        m2 * L1 * L2 * theta1_dot * theta2_dot * np.cos(delta_theta)
     return T
 
 # Funkce pro potenciální energii
@@ -29,14 +31,15 @@ def potential_energy(theta1, theta2):
 def derivatives(state):
     theta1, omega1, theta2, omega2 = state
     delta_theta = theta1 - theta2
+    m = m1 + m2
     A = m1 + m2 * np.sin(delta_theta)**2
     
     d_omega1 = (-np.sin(delta_theta) * (m2 * L1 * omega1**2 * np.cos(delta_theta) + m2 * L2 * omega2**2) - \
-                g * (m1 * np.sin(theta1) - m2 * np.sin(theta2) * np.cos(delta_theta))) / (2 * L1 * A)
+                g * (m * np.sin(theta1) - m2 * np.sin(theta2) * np.cos(delta_theta))) / (L1 * A)
     
-    d_omega2 = (+np.sin(delta_theta) * (m2 * L2 * omega2**2 * np.cos(delta_theta) + m1 * L1 * omega1**2) - \
-                g * (m1 * np.sin(theta2) - m1 * np.sin(theta1) * np.cos(delta_theta))) / (2 * L2 * A)
-    
+    d_omega2 = (+np.sin(delta_theta) * (m2 * L2 * omega2**2 * np.cos(delta_theta) + m * L1 * omega1**2) - \
+                g * (m * np.sin(theta2) - m * np.sin(theta1) * np.cos(delta_theta))) / (L2 * A)
+
     d_theta1 = omega1
     d_theta2 = omega2
     
@@ -52,13 +55,13 @@ def runge_kutta_4th_order(state, dt):
     return new_state
 
 # Generování počátečních podmínek
-def generate_initial_conditions():
+def generate_initial_conditions(E):
     while True:
         theta1 = np.random.uniform(-np.pi, np.pi)
         theta2 = np.random.uniform(-np.pi, np.pi)
         
         V = potential_energy(theta1, theta2)
-        E = V + 1e-5  # Zajištění, že E je mírně větší než V
+        # E = V + 1e-5  # Zajištění, že E je mírně větší než V
 
         delta_theta = theta1 - theta2
         max_T = E - V
@@ -66,21 +69,29 @@ def generate_initial_conditions():
         if max_T < 0:
             continue
         
-        max_omega1 = np.sqrt(max_T / (0.5 * m1 * L1**2))
+        max_omega1 = np.sqrt(max_T / (0.5 * (m1 + m2) * L1**2))
         omega1 = np.random.uniform(-max_omega1, max_omega1)
         
-        T_remaining = max_T - 0.5 * m1 * L1**2 * omega1**2
-        if T_remaining < 0:
+        # T_remaining = max_T - 0.5 * m1 * L1**2 * omega1**2
+        # if T_remaining < 0:
+        #     continue
+        
+        a = 0.5 * m2 * L2**2
+        b = m2 * L1 * L2 * omega1 * np.cos(delta_theta)
+        c = 0.5 * (m1 + m2) * L1**2 * omega1**2
+        
+        D = b**2 - 4 * a * (c - max_T)
+        if D < 0:
             continue
-        
-        omega2 = np.sqrt(T_remaining / (0.5 * m2 * L2**2))
-        
-        if kinetic_energy(omega1, omega2, delta_theta) + V <= E:
-            return np.array([theta1, omega1, theta2, omega2]), E
+
+        sign = np.random.choice([-1, 1])
+        omega2 = (-b + sign * np.sqrt(D)) / (2 * a)
+
+        return np.array([theta1, omega1, theta2, omega2])
 
 # Hlavní funkce pro simulaci
-def simulate_pendulum(t_max, dt):
-    state, E0 = generate_initial_conditions()
+def simulate_pendulum(t_max, dt, E0):
+    state = generate_initial_conditions(E0)
     
     t = 0
     times = []
@@ -98,10 +109,10 @@ def simulate_pendulum(t_max, dt):
         T = kinetic_energy(state[1], state[3], state[0] - state[2])
         E = T + V
         
-        # Oprava energie, aby byla co nejblíže k E0
-        energy_correction = E0 - E
-        if np.abs(energy_correction) > 1e-6:
-            E = E0  # Oprava energie na E0
+        # # Oprava energie, aby byla co nejblíže k E0
+        # energy_correction = E0 - E
+        # if np.abs(energy_correction) > 1e-6:
+        #     E = E0  # Oprava energie na E0
         
         energies.append(E)
         
@@ -141,9 +152,12 @@ def simulate_pendulum(t_max, dt):
         return line, time_text
 
     def animate_pendulum(i):
-        global state
-        state = runge_kutta_4th_order(state, dt)
-        theta1, _, theta2, _ = state
+        # global state
+        # state = runge_kutta_4th_order(state, dt)
+        # theta1, _, theta2, _ = state
+        
+        theta1 = theta1_vals[i]
+        theta2 = theta2_vals[i]
 
         x1 = L1 * np.sin(theta1)
         y1 = -L1 * np.cos(theta1)
@@ -165,15 +179,15 @@ def simulate_pendulum(t_max, dt):
     line, = ax.plot([], [], 'o-', lw=2, color='blue')
     time_template = 'time = %.1fs'
     time_text = ax.text(0.05, 0.9, '', transform=ax.transAxes)
-    
-    ani = FuncAnimation(fig, animate_pendulum, frames=int(t_max / dt), init_func=init, blit=True, repeat=False)
+
+    ani = FuncAnimation(fig, animate_pendulum, frames=int(t_max / dt), interval=1, init_func=init, blit=True, repeat=False)
     
     # Zobrazení animace
     plt.show()
-    plt.ion()
+    #plt.ion()
     ani
+
 # Spuštění simulace
-simulate_pendulum(t_max=20, dt=0.1)
-
-
-
+simulate_pendulum(t_max=100, dt=0.005, E0=1)
+simulate_pendulum(t_max=100, dt=0.005, E0=30)
+simulate_pendulum(t_max=100, dt=0.005, E0=200)
